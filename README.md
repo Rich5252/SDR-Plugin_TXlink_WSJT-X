@@ -12,3 +12,5 @@ The Arduino code is a normal sketch and requires a couple of Arduino libraries i
 The main project is for VS2022 and includes the solution files required for the TXlink plugin and also nana.
 NOTE:: SDRuno plugin requires nana GUI support which needs to be rebuilt to create the support libs - see
         nana folder for required VS solution file.
+
+73, G4AHN
