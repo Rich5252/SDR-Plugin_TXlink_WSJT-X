@@ -1,4 +1,4 @@
-# SDRuno_TXlink_WSJT-X
+# SDR-Plugin_SDRuno_TXlink_WSJT-X
 Transmitter project with SDRuno plugin driving an Arduino DDS transmitter and with WSJT-X integration.
 
 The SDRuno plugin is based on the SDRuno plugin template. The plugin provides a transmitter UI for the Arduino
