@@ -6,7 +6,7 @@ and advanced handling of late TX initiation to maximise receiver decode success 
 
 TXlink4_Nano.ino is the top level Arduino code module.
 
-The new RTTY functionality includes a new VB6 app that integrates the popular MMTTY decoder.
+The new RTTY functionality includes a new VB6 app that integrates the popular MMTTY decoder (see XMMT master folder)
 
 The SDRuno plugin is based on the SDRuno plugin template. The plugin provides a transmitter UI for the Arduino
 sending USB serial commands to it and accepting messages from it for display and SDRuno control. It supports
