@@ -30,6 +30,7 @@
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
@@ -67,37 +68,44 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
-    <LibraryPath>..\..\nana\build\bin;$(LibraryPath)</LibraryPath>
+    <LibraryPath>$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
-    <IncludePath>.\include;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" />
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;_SILENCE_EXPERIMENTAL_FILESYSTEM_DEPRECATION_WARNING;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;_SILENCE_EXPERIMENTAL_FILESYSTEM_DEPRECATION_WARNING;%(PreprocessorDefinitions);_WIN32_WINNT=0x0A00</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
-      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
-      <Optimization>Disabled</Optimization>
-      <AdditionalIncludeDirectories>..\nana\include;..\include</AdditionalIncludeDirectories>
+      <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
+      <Optimization>MaxSpeed</Optimization>
+      <AdditionalIncludeDirectories>..\include;C:\Users\office2\Documents\Ham Radio\VScode\asio_lib\asio\include\;..\nana vs2022 v143\include</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <BufferSecurityCheck>false</BufferSecurityCheck>
     </ClCompile>
     <Link>
       <TargetMachine>MachineX86</TargetMachine>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
       <MapExports>true</MapExports>
+      <AdditionalDependencies>..\nana vs2022 v143\build\bin\nana_v143_Debug_x86.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <PostBuildEvent>
+      <Command>copy /Y "$(TargetDir)$(ProjectName).dll" "C:\Users\office2\Documents\CommunityPlugins\$(ProjectName).dll"</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_SILENCE_EXPERIMENTAL_FILESYSTEM_DEPRECATION_WARNING;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_SILENCE_EXPERIMENTAL_FILESYSTEM_DEPRECATION_WARNING;%(PreprocessorDefinitions);_WIN32_WINNT=0x0A00</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
-      <AdditionalIncludeDirectories>..\include;..\nana vs2022 v143\include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\include;C:\Users\office2\Documents\Ham Radio\VScode\asio_lib\asio\include\;..\nana vs2022 v143\include</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp20</LanguageStandard>
+      <BufferSecurityCheck>false</BufferSecurityCheck>
     </ClCompile>
     <Link>
       <TargetMachine>MachineX86</TargetMachine>
@@ -107,6 +115,9 @@
       <OptimizeReferences>true</OptimizeReferences>
       <AdditionalDependencies>..\nana vs2022 v143\build\bin\nana_v143_Release_x86.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
+      <IgnoreAllDefaultLibraries>false</IgnoreAllDefaultLibraries>
+      <IgnoreSpecificDefaultLibraries>
+      </IgnoreSpecificDefaultLibraries>
     </Link>
     <ResourceCompile>
       <ShowProgress>true</ShowProgress>
@@ -122,21 +133,44 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp" />
+    <ClCompile Include="DXspiderClient.cpp" />
+    <ClCompile Include="MessageBox.cpp" />
+    <ClCompile Include="NamedPipeServer.cpp" />
     <ClCompile Include="SDRunoPlugin_TXLink.cpp" />
+    <ClCompile Include="SDRunoPlugin_TXLinkATUDialog.cpp" />
     <ClCompile Include="SDRunoPlugin_TXLinkForm.cpp" />
     <ClCompile Include="SDRunoPlugin_TXLinkProject.cpp" />
     <ClCompile Include="SDRunoPlugin_TXLinkSettingsDialog.cpp" />
     <ClCompile Include="SDRunoPlugin_TXLinkUi.cpp" />
+    <ClCompile Include="SendKeys.cpp" />
     <ClCompile Include="SimpleSerial.cpp" />
+    <ClCompile Include="nana_cleanup.cpp" />
+    <ClCompile Include="RTTY_Server.cpp" />
+    <ClCompile Include="FindWindowTitleRoot.cpp" />
+    <ClCompile Include="UDP_Type17.cpp" />
+    <ClCompile Include="TunerServer.cpp" />
     <ClCompile Include="UDP_Server.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\include\iunoplugincontroller.h" />
+    <ClInclude Include="DXspiderClient.h" />
+    <ClInclude Include="FindWindowTitleRoot.h" />
+    <ClInclude Include="Console.h" />
+    <ClInclude Include="UDP_Type17.h" />
+    <ClInclude Include="MessageQueue.h" />
+    <ClInclude Include="NamedPipeServer.h" />
+    <ClInclude Include="nana_cleanup.h" />
+    <ClInclude Include="MessageBox.h" />
     <ClInclude Include="resource.h" />
+    <ClInclude Include="RTTY_Server.h" />
     <ClInclude Include="SDRunoPlugin_TXLink.h" />
+    <ClInclude Include="SDRunoPlugin_TXLinkATUDialog.h" />
     <ClInclude Include="SDRunoPlugin_TXLinkForm.h" />
     <ClInclude Include="SDRunoPlugin_TXLinkSettingsDialog.h" />
     <ClInclude Include="SDRunoPlugin_TXLinkUi.h" />
+    <ClInclude Include="SendKeys.h" />
     <ClInclude Include="SimpleSerial.h" />
+    <ClInclude Include="TunerServer.h" />
     <ClInclude Include="UDP_Server.h" />
     <ClInclude Include="WSJTX_Packet.h" />
   </ItemGroup>

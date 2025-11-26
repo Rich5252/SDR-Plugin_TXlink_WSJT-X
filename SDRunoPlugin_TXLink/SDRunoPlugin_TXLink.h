@@ -12,9 +12,10 @@
 #include <iunostreamobserver.h>
 #include <iunoannotator.h>
 
+#include "SDRunoPlugin_TXLink.h"
 #include "SDRunoPlugin_TXLinkUi.h"
 #include "UDP_Server.h"
-
+#include "RTTY_Server.h"
 
 //TXlink plugin for SDRuno app. The plugin code is based on the SDRuno plugin template example.
 // It talks to an Arduino transmitter project via USB serial link.
@@ -46,7 +47,7 @@ public:
 
 	void UpdateSampleRate();
 
-	int ANNOCount() { return AnnoCount; }
+	int ANNOCount() const { return AnnoCount; }
 
 	struct AnnoEntry {
 		std::string callsign;
@@ -56,28 +57,38 @@ public:
 		AnnoEntry* next;
 	};
 
-	AnnoEntry* head, * tail, * current, * prev, * annocurr, * freqcurr;
+	AnnoEntry* head;
+	AnnoEntry* tail;
+	AnnoEntry* current;
+	AnnoEntry* prev;
+	AnnoEntry* annocurr;
+	AnnoEntry* freqcurr;
 
 	void add_AnnoEntry(std::string tag, std::string tim, long long freq);
 	void updateTX_AnnoEntry(std::string tag, std::string tim, long long freq);
 	void updateRX_AnnoEntry(std::string tag, std::string tim, long long freq);
 	//end annotation
 
-	std::thread UDPthread;
+	SDRunoPlugin_TXLinkForm::eSplitMode GetSplitMode();
+
+	std::unique_ptr<std::thread> UDPthread;
+	std::unique_ptr<std::thread> TunerThread;
+	std::unique_ptr<std::thread> RTTYThread;
+	std::unique_ptr<std::thread> DXspiderThread;
+	std::unique_ptr<SDRunoPlugin_TXLinkUi> m_Ui;
+	void StartTXLinkUi();			// New public method to start m_Ui
+	void StopTXLinkUi();			// New public method to shutdown m_Ui
 
 
 private:
-	
 	void WorkerFunction();
 	std::thread* m_worker;
 
 	std::mutex m_lock;
-	SDRunoPlugin_TXLinkUi m_form;
-
 
 	int AnnoCount;
 	int64_t sampleRate;
 
-//	std::thread threadObject;
-//	std::reference_wrapper<std::thread> UDPthread;
+	bool bFormOpen;
+
 };

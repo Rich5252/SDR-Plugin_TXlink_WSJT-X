@@ -36,10 +36,12 @@ void SDRunoPlugin_TemplateSettingsDialog::Run()
 int SDRunoPlugin_TemplateSettingsDialog::LoadX()
 {
 	std::string tmp;
-	m_controller.GetConfigurationKey("TXLink.X", tmp);
+	m_controller.GetConfigurationKey("TXLink.Xsettings", tmp);
 	if (tmp.empty())
 	{
-		return -1;
+		tmp = "0";
+		//?std::lock_guard<std::mutex> l(m_lock); 
+		m_controller.SetConfigurationKey("TXLink.Xsettings", tmp);		//default
 	}
 	return stoi(tmp);
 }
@@ -49,10 +51,12 @@ int SDRunoPlugin_TemplateSettingsDialog::LoadX()
 int SDRunoPlugin_TemplateSettingsDialog::LoadY()
 {
 	std::string tmp;
-	m_controller.GetConfigurationKey("TXLink.Y", tmp);
+	m_controller.GetConfigurationKey("TXLink.Ysettings", tmp);
 	if (tmp.empty())
 	{
-		return -1;
+		tmp = "0";
+		//?std::lock_guard<std::mutex> l(m_lock); 
+		m_controller.SetConfigurationKey("TXLink.Ysettings", tmp);		//default
 	}
 	return stoi(tmp);
 }
@@ -117,6 +121,51 @@ int SDRunoPlugin_TemplateSettingsDialog::LoadFanHold()
 	return stoi(tmp);
 }
 
+// Load FanLowPWM value from the ini file (if exists)
+int SDRunoPlugin_TemplateSettingsDialog::LoadFanLowPWM()
+{
+	std::string tmp;
+	m_controller.GetConfigurationKey("TXLink.FanLowPWM", tmp);
+	if (tmp.empty())
+	{
+		tmp = "175";
+		//?std::lock_guard<std::mutex> l(m_lock);
+		m_controller.SetConfigurationKey("TXLink.FanLowPWM", tmp);		//default
+	}
+	FanLowPWMTb.caption(tmp);
+	return stoi(tmp);
+}
+
+// Load FT8txDelay value from the ini file (if exists)
+int SDRunoPlugin_TemplateSettingsDialog::LoadstrFT8txDelay()
+{
+	std::string tmp;
+	m_controller.GetConfigurationKey("TXLink.FT8txDelay", tmp);
+	if (tmp.empty())
+	{
+		tmp = "250";
+		//?std::lock_guard<std::mutex> l(m_lock);
+		m_controller.SetConfigurationKey("TXLink.FT8txDelay", tmp);		//default
+	}
+	FT8txDelayTb.caption(tmp);
+	return stoi(tmp);
+}
+
+// Load TempLimit value from the ini file (if exists)
+int SDRunoPlugin_TemplateSettingsDialog::LoadstrTempLimit()
+{
+	std::string tmp;
+	m_controller.GetConfigurationKey("TXLink.TempLimit", tmp);
+	if (tmp.empty())
+	{
+		tmp = "54";
+		//?std::lock_guard<std::mutex> l(m_lock);
+		m_controller.SetConfigurationKey("TXLink.TempLimit", tmp);		//default
+	}
+	TempLimitTb.caption(tmp);
+	return stoi(tmp);
+}
+
 // Create the settings dialog form
 void SDRunoPlugin_TemplateSettingsDialog::Setup()
 {
@@ -130,6 +179,7 @@ void SDRunoPlugin_TemplateSettingsDialog::Setup()
 	// This code sets the plugin size and title
 	size(nana::size(dialogFormWidth, dialogFormHeight));
 	caption("TXLink - Settings");
+	events().unload([&] { SaveLocation(); });
 
 	// Set the forms back color to black to match SDRuno's settings dialogs
 	this->bgcolor(nana::colors::black);
@@ -175,9 +225,65 @@ void SDRunoPlugin_TemplateSettingsDialog::Setup()
 		m_controller.SetConfigurationKey("TXLink.FanHold", strFanHold);
 		});
 
+	FanLowPWMLbl.caption("FanLow (0-255)");
+	FanLowPWMLbl.bgcolor(nana::colors::black);
+	FanLowPWMLbl.fgcolor(nana::colors::white);
+	FanLowPWMTb.multi_lines(false);
+	FanLowPWMTb.events().text_changed([&] {
+		string strFanLowPWM = FanLowPWMTb.caption();
+		//?std::lock_guard<std::mutex> l(m_lock);
+		m_controller.SetConfigurationKey("TXLink.FanLowPWM", strFanLowPWM);
+		});
+
+	FT8txDelayLbl.caption("FT8 TX delay ms");
+	FT8txDelayLbl.bgcolor(nana::colors::black);
+	FT8txDelayLbl.fgcolor(nana::colors::white);
+	FT8txDelayTb.multi_lines(false);
+	FT8txDelayTb.events().text_changed([&] {
+		string strFT8txDelay = FT8txDelayTb.caption();
+		//?std::lock_guard<std::mutex> l(m_lock);
+		m_controller.SetConfigurationKey("TXLink.FT8txDelay", strFT8txDelay);
+		});
+
+	TempLimitLbl.caption("Temp Limit");
+	TempLimitLbl.bgcolor(nana::colors::black);
+	TempLimitLbl.fgcolor(nana::colors::white);
+	TempLimitTb.multi_lines(false);
+	TempLimitTb.events().text_changed([&] {
+		string strTempLimit = TempLimitTb.caption();
+		//?std::lock_guard<std::mutex> l(m_lock);
+		m_controller.SetConfigurationKey("TXLink.TempLimit", strTempLimit);
+		});
+
+	TXtempLbl.caption("Temp =");
+	TXtempLbl.bgcolor(nana::colors::black);
+	TXtempLbl.fgcolor(nana::colors::white);
+	m_timer.interval(std::chrono::milliseconds(100));
+	// this next call sets the code to be executed after every interval
+	m_timer.elapse([&] {
+		string tmp = "Temp = " + m_parent.m_form->strTXtemp + " degC";
+		TXtempLbl.caption(tmp);
+		});
+	m_timer.start();
+
+
 
 	LoadFreqCal();
 	LoadUPfreq();
 	LoadTXhold();
 	LoadFanHold();
+	LoadFanLowPWM();
+	LoadstrFT8txDelay();
+	LoadstrTempLimit();
+}
+
+void SDRunoPlugin_TemplateSettingsDialog::SaveLocation()
+{
+	nana::point position = this->pos();
+	if (position.x >= 0 && position.y >= 0)
+	{
+		m_controller.SetConfigurationKey("TXLink.Xsettings", std::to_string(position.x));
+		m_controller.SetConfigurationKey("TXLink.Ysettings", std::to_string(position.y));
+	}
+
 }

@@ -1,10 +1,25 @@
 #pragma once
+
 #include <string>
 #include <vector>
 #include <cstring>
 #include <format>
 #include <tuple>
 
+enum PacketType {
+    Heartbeat = 0,
+    Status = 1,
+    Decode = 2,
+    Erase = 3,
+    ReplyIN = 4,
+    QSOlogged = 5,
+    Close = 6,
+	HeartbeatEx = 7,
+	StatusEx = 8,
+	DecodeEx = 9,
+    WSPRDecode = 10,
+    SetFreq = 17
+    };
 
 class WSJTX_Packet {
 public:
@@ -84,6 +99,25 @@ public:
         return data;
     }
 
+
+    int64_t getLongLongV2() {
+        int64_t data;
+        // Use unsigned type to prevent sign extension on assignment
+        uint8_t rev[sizeof(data)];
+
+        for (int i = 0; i < sizeof(data); i++)
+        {
+            // Copy unsigned byte data to the unsigned swap array
+            rev[sizeof(data) - 1 - i] = packet[i + index];
+        }
+
+        // memcpy from unsigned array to signed int64_t is safe
+        std::memcpy(&data, &rev[0], sizeof(data));
+
+        index += sizeof(data);
+        return data;
+    }
+
     double getDouble() {
         double data;
         char rev[sizeof(data)];
@@ -103,7 +137,7 @@ public:
             index += strLength;
             return stringRead;
         }
-
+        return "";
     }
 
     void Decode() {
@@ -223,7 +257,10 @@ public:
     }
 
     void Decode() {
+        //std::cout << "Status Decode: Index before Freq = " << index << std::endl;
         Frequency = getLongLong();
+        //std::cout << "Status Decode: Index after = " << index << " Freq = " << Frequency << std::endl;
+
         Mode = readutf8();
         DXCall = readutf8();
         Report = readutf8();
@@ -506,5 +543,78 @@ public:
     }
 };
 
+class WSJTX_SetFreq : public WSJTX_Packet {
+public:
+	//std::string ClientID;
+	uint64_t dialFrequency;     //(Hz) * 1000
+	bool TxEnabled;
+	std::string Mode;
+	uint32_t FreqTolerance;
+	std::string Submode;
+	bool Fastmode;
+	int32_t TxPeriod;       //(sec)
+	uint32_t RxDF;           //(Hz)
+	uint32_t TxDF;           //(Hz)
+	std::string DECall;
+	std::string DXgrid;
+	bool GenMsg;
+	bool TxEven;
 
+    WSJTX_SetFreq(const std::vector<uint8_t>& pkt, int idx) : WSJTX_Packet(pkt, idx) {
+        std::cout << "SetFreq called at index " << index << " pkt size = " << size(pkt) << std::endl;
+        //ClientID = "";
+        dialFrequency = 0;     //(Hz) * 1000
+        TxEnabled = false;
+        Mode = "";
+        FreqTolerance = 0;
+        Submode = "";
+        Fastmode = false;
+        TxPeriod = 0;       //(sec)
+        RxDF = 0;           //(Hz)
+        TxDF = 0;           //(Hz)
+        DECall = "";
+        DXgrid = "";
+        GenMsg = false;
+        TxEven = true;
+    }
+
+    void Decode() {
+		
+        //ClientID = readutf8();
+		std::cout << "SetFreq Decode: Index before dialFreq = " << index << std::endl;
+        dialFrequency = getLongLong();     //(Hz) * 1000
+		std::cout << "SetFreq Decode: Index after = " << index << " dialFreq = " << dialFrequency << std::endl;
+        std::cout << "SetFreq Decode: Index before txFreq = " << index << std::endl;
+        uint64_t txFrequency = getLongLong();     //(Hz) * 1000
+        std::cout << "SetFreq Decode: Index after = " << index << " txFreq = " << txFrequency << std::endl;
+        TxEnabled = getBool();
+		std::cout << "SetFreq Decode: Index = " << index << " TxEnabled = " << TxEnabled << std::endl;
+        Mode = readutf8();
+		std::cout << "SetFreq Decode: Index = " << index << " Mode = " << Mode << std::endl;
+        FreqTolerance = getuInt32();
+		std::cout << "SetFreq Decode: Index = " << index << " FreqTolerance = " << FreqTolerance << std::endl;
+        Submode = readutf8();
+		std::cout << "SetFreq Decode: Index = " << index << " Submode = " << Submode << std::endl;
+        Fastmode = getBool();
+		std::cout << "SetFreq Decode: Index = " << index << " Fastmode = " << Fastmode << std::endl;
+        TxPeriod = getuInt32();       //(sec)
+		std::cout << "SetFreq Decode: Index = " << index << " TxPeriod = " << TxPeriod << std::endl;
+        RxDF = getuInt32();           //(Hz)
+		std::cout << "SetFreq Decode: Index = " << index << " RxDF = " << RxDF << std::endl;
+        TxDF = getuInt32();             //(Hz)
+		std::cout << "SetFreq Decode: Index = " << index << " TxDF = " << TxDF << std::endl;
+        DECall = readutf8();
+		std::cout << "SetFreq Decode: Index = " << index << " DECall = " << DECall << std::endl;
+        DXgrid = readutf8();
+		std::cout << "SetFreq Decode: Index = " << index << " DXgrid = " << DXgrid << std::endl;
+        GenMsg = getBool();
+		std::cout << "SetFreq Decode: Index = " << index << " GenMsg = " << GenMsg << std::endl;
+        TxEven = getBool();
+		std::cout << "SetFreq Decode: Index = " << index << " TxEven = " << TxEven << std::endl;
+
+        uint32_t final_padding = getuInt32();
+        std::cout << "SetFreq Decode: Index = " << index << " Final Padding = " << final_padding << std::endl;
+
+    }
+};
 
