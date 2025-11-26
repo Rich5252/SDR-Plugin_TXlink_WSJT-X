@@ -1,0 +1,33 @@
+Dec		bits	letter mode	figure mode
+0		00000	null		null
+1		00001	E			3
+2		00010	line feed	line feed
+3		00011	A			-
+4		00100	space		space
+5		00101	S			'/bell
+6		00110	I			8
+7		00111	U			7
+8		01000	c.r.		carriage return
+9		01001	D			who are you?/$
+10		01010	R			4
+11		01011	J			bell/'
+12		01100	N			,
+13		01101	F			!
+14		01110	C			:
+15		01111	K			(
+16		10000	T			5
+17		10001	Z			+
+18		10010	L			)
+19		10011	W			2
+20		10100	H			£/#
+21		10101	Y			6
+22		10110	P			0
+23		10111	Q			1
+24		11000	O			9
+25		11001	B			?
+26		11010	G			&
+27		11011	figure shift	undefined
+28		11100	M			.
+29		11101	X			/
+30		11110	V			= or ;
+31		11111	undefined	letter shift/delete
