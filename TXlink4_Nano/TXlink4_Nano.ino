@@ -207,8 +207,8 @@ void DigitalTXmsg()
   long f0offset = 0;
   if (TxMode == MODE_FT8) { f0offset = tone_spacing / 2; }         //FT8 zero symbol tone offset
 
-  long lastToneFreqHz_x100 = 0;
-  long nextToneFreqHz_x100 = 0;
+  long lastToneFreqHz_x10 = 0;
+  long nextToneFreqHz_x10 = 0;
   
 
   // MAIN LOOP to TX each FT4/FT4 tone required from symbol list
@@ -217,17 +217,17 @@ void DigitalTXmsg()
   for(i = AdjustStart(); i < symbol_count; i++)
   {    
     //next tone calc from symbols array. NOTE:: need "long" ints here to get enough digit resolution for freq.
-    long nextToneFreqHz_x100 = (CurFreq + FTxTxDF) * 100UL + ((long) (tx_buffer[i] * tone_spacing) + f0offset);  //tone calcs to 2 dec places rounded to 0.01Hz
+    long nextToneFreqHz_x10 = (CurFreq + FTxTxDF) * 10UL + (((long) (tx_buffer[i] * tone_spacing) + f0offset) + 5) / 10;  //tone calcs to 2 dec places rounded to 0.1Hz
     if (i == 0)
     {
       // set first output freq required
-      dds.setFrequency(nextToneFreqHz_x100, PowerUp);  //first tone output       
+      dds.setFrequencyHz_x10(nextToneFreqHz_x10, PowerUp);  //first tone output       
     }
     else
     {
       //gaussian transition to next tone
       long gStart = micros();
-      double gTranChangeHz_x100 = nextToneFreqHz_x100 - lastToneFreqHz_x100;
+      double gTranChangeHz_x10 = nextToneFreqHz_x10 - lastToneFreqHz_x10;
             
       for (long g = 0; g <= gTranSteps; g++)
       {
@@ -235,13 +235,13 @@ void DigitalTXmsg()
          double gX = dbl_gXstart + (double) g * (-dbl_gXincr);
          double gY = exp(-pow(gX,2));
          // set next output freq required
-         dds.setFrequency(lastToneFreqHz_x100 + (long) (gY * gTranChangeHz_x100 + 0.5) , PowerUp);
+         dds.setFrequencyHz_x10(lastToneFreqHz_x10 + (long) (gY * gTranChangeHz_x10 + 5) , PowerUp);
 
          //delay to next time increment
          while (micros() - gStart - (g * 1000 / gTranIncr) < 1000 / gTranIncr) {}
       }      
     }
-    lastToneFreqHz_x100 = nextToneFreqHz_x100;            //remember where we are for next gaussian transition 
+    lastToneFreqHz_x10 = nextToneFreqHz_x10;            //remember where we are for next gaussian transition 
        
     //output tone duration and also check for {W0} abort command
     long waitFor = tone_duration - gTranSteps / 2 / gTranIncr;               //allow for next gaussian transition time
@@ -271,7 +271,7 @@ void DigitalTXmsg()
   }
 
   // Reset freq, remove RF. TX is turned off properly in the main loop
-  dds.setFrequency((CurFreq + FTxTxDF) * 100, PowerDown);
+  dds.setFrequencyHz_x10((CurFreq + FTxTxDF) * 10, PowerDown);
   DigiTxOn = false;      //key up
 }
 
@@ -443,7 +443,7 @@ void loop() {
     // Transmiting or need to go to transmit
     if (!KeyDownActive)              // need to go through TXon process?
     {
-      dds.setFrequency(CurFreq * 100, PowerUp);      //turn DDS on
+      dds.setFrequencyHz(CurFreq, PowerUp);      //turn DDS on
       //Serial_print("{f" + String(CurFreq) + "}");                 //msg for ATU etc to make sure correct freq selected
       formatForSerial("{f", CurFreq, 0, "}" , outputBuffer, OUTPUT_BUFFER_SIZE);
       Serial_println(outputBuffer);
@@ -499,7 +499,7 @@ void loop() {
         Serial_println("{N}");            //RX off Mute
         digitalWrite(ExtPAout, LOW);    //turn off external PA (may not of been on of course)
         digitalWrite(TXout, LOW);       //turn off RF
-        dds.setFrequency(CurFreq * 100, PowerDown);    //and dds off
+        dds.setFrequencyHz(CurFreq, PowerDown);    //and dds off
         LastKeyUpMillis = 0;
 
         FanHoldStartMillis = millis();  // hold fan on (if on) until fan hold time expires
@@ -672,7 +672,7 @@ void CheckFanState(double avgFWD, double SWR)
       TxTempLockout = true;
       FTxMillisToEnd = 0;         //force digital stop
       // action like {D} power down - requires user to power up (TX On) again from UI
-      dds.setFrequency(CurFreq * 100, PowerDown);
+      dds.setFrequencyHz(CurFreq, PowerDown);
       Serial_println("{D}{N}");      //TX off in UI
       TXPowerOn = false;
       FTxMillisToEnd = 0;
@@ -730,12 +730,12 @@ void ProcessSerialIn() {
       // --- Single-Character Commands ---
       if (strcmp(chrCommand, "D") == 0)
       {
-          dds.setFrequency(CurFreq * 100, PowerDown);
+          dds.setFrequencyHz(CurFreq, PowerDown);
           TXPowerOn = false;
       }
       else if (strcmp(chrCommand, "U") == 0)
       {
-          dds.setFrequency(CurFreq * 100, PowerDown);
+          dds.setFrequencyHz(CurFreq, PowerDown);
           TXPowerOn = true;
           SendTunekHz(true);               //msg for ATU etc
           setDDSlevelPWM();                //reset current power level
@@ -770,9 +770,9 @@ void ProcessSerialIn() {
       else if (strncmp(chrCommand, "C", 1) == 0)    //freq calibartion update
       {
           CALIBRATION = atoi(&chrCommand[1]);
-          dds.setFrequency(CurFreq * 100, PowerDown);
+          dds.setFrequencyHz(CurFreq, PowerDown);
           dds.setClock(CALIBRATION);
-          dds.setFrequency(CurFreq * 100, TXPowerOn);        
+          dds.setFrequencyHz(CurFreq, TXPowerOn);        
       }
       else if (strncmp(chrCommand, "H", 1) == 0)    //TX hold on time (ms)
       {
@@ -800,7 +800,7 @@ void ProcessSerialIn() {
           SendTunekHz(true);
           
           // Use the String object's built-in conversion method
-          dds.setFrequency(CurFreq * 100, PowerDown);
+          dds.setFrequencyHz(CurFreq, PowerDown);
         }
 
         chrCommand[0] = '\0'; // Clear buffer
@@ -966,9 +966,9 @@ void CalcFreqCorrection(double temp)
   //don't change while transmitting
   if (!(KeyDownActive || DigiTxOn))
   {
-    dds.setFrequency(CurFreq * 100, PowerDown);
+    dds.setFrequencyHz(CurFreq, PowerDown);
     dds.setClock(newCorrection);
-    dds.setFrequency(CurFreq * 100, PowerDown);
+    dds.setFrequencyHz(CurFreq, PowerDown);
   } 
 
   //Serial_println(i);

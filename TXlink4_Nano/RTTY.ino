@@ -118,7 +118,7 @@ void transmitBit(int bit, long uSecNextBitEnd) {
         nextToneFreqHz = CurFreq + SPACE_FREQ;
     }
     
-    dds.setFrequency(nextToneFreqHz, PowerUp); 
+    dds.setFrequencyHz_x10(nextToneFreqHz*10, PowerUp); 
     
     // Use delay() for the precise bit duration
     long d = uSecNextBitEnd - micros();
@@ -211,6 +211,6 @@ void transmitRttyString() {
         }
     }
     // Reset freq, remove RF. TX is turned off properly in the main loop
-    dds.setFrequency(CurFreq - SPACE_FREQ, PowerDown);
+    dds.setFrequencyHz_x10((CurFreq - SPACE_FREQ)*10, PowerDown);
     DigiTxOn = false;      //key up
 }
