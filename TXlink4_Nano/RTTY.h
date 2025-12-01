@@ -24,5 +24,5 @@ void transmitRttyString(const char* text); // Include this too if it's in a sepa
 
 #endif
 
-extern long CurFreq;
+extern uint32_t CurFreq;
 extern bool DigiTxOn;

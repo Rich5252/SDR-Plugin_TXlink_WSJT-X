@@ -73,7 +73,7 @@ MyAD9851 dds;
 // This is the base frequency value, ie the RX / TX frequency.
 // Applicable offsets are applied for each mode
 #define Fs        10120000UL  /* Hz */
-long  CurFreq = Fs;
+uint32_t  CurFreq = Fs;
 long lastkHz = 0;
 
 //DDS calibration - legacy only
@@ -123,14 +123,16 @@ int     ExtPAlevel = 0;         // drive level for external PA when enabled
 bool    ExtPAon = false;
 
 //digital mode params
-#define FT8_TONE_SPACING        625          // 6.25 Hz
-#define FT8_tone_duration               160          // Symbol tone duration (ms) value for FT8
-#define FT8_SYMBOL_COUNT        79
+#define FT8_TONE_SPACING                625           // 6.25 Hz
+#define FT8_tone_spacing_FTWincr_x100   14913        //0.0419095Hz per bit
+#define FT8_tone_duration               160           // Symbol tone duration (ms) value for FT8
+#define FT8_SYMBOL_COUNT                79
 
 //digital mode params
-#define FT4_TONE_SPACING        2083          // 20.83(3333) Hz
-#define FT4_tone_duration               48          // Symbol tone duration (ms) value for FT4
-#define FT4_SYMBOL_COUNT        105
+#define FT4_TONE_SPACING                2083          // 20.83(3333) Hz
+#define FT4_tone_spacing_FTWincr_x100   49710         //0.0419095Hz per bit
+#define FT4_tone_duration               48            // Symbol tone duration (ms) value for FT4
+#define FT4_SYMBOL_COUNT                105
 
 // Digital mode enumeration. "{Mx}" command sets mode = x
 enum mode {MODE_RTTY = 1, MODE_FT4 = 4, MODE_FT8 = 8};
@@ -164,15 +166,36 @@ uint8_t tx_buffer[106];               // this buffer holds a numerical version o
                                       //    these are the required multiples of the FT4/8 step frequencies, eg 6.25 Hz for FT8
 enum mode cur_mode = DEFAULT_MODE;
 int8_t symbol_count;                  //number of symbols for selected mode. =-1 when RTTY
-uint16_t tone_duration, tone_spacing;    //tone_duration is time in ms for each tone, spacing is freq step * 100 eg 625 for FT8 (6.25 Hz)
+uint16_t tone_duration;               //tone_duration is time in ms for each tone
+uint32_t tone_spacingHz_x100;                //spacing is freq step * 100 eg 625 for FT8 (6.25 Hz)
+uint32_t tone_spacing_FTWincr_x100;   //equivalent AD5851 FTW increment for each tone, gives much more accurate tone spacing
 
 //gaussian freq transition params. See Gassian Calcs.xlsx file for model used.
 //these default values are the FT8 case. See setDigDefaults() function for FT4
-double dbl_gXstart = -2.2;  // T start value for gaussion multiplier
-long gTranSteps = 64;       //+/- 10% tone_duration, eack step 0.5ms (tone_duration = 160ms)
-long gTranIncr = 2;         //incr per millisec  (actual loop timer uses micros())
-double dbl_gTranSteps = gTranSteps;
-double dbl_gXincr = dbl_gXstart / dbl_gTranSteps;       //incr for gaussian formulae
+uint32_t gTranSteps = 128;                       //+/- 10% tone_duration, eack step 0.5ms (tone_duration = 160ms)
+uint32_t gTranMicrosPerStep = 250;              //per gaussian transition step
+int gTranInterpFactor = gTranSteps / 32;    //number of steps per increment in LookUpTable (LUT)
+
+/**
+ * @brief Gaussian Pulse Shaping Lookup Table (LUT).
+ * * Contains 32 steps representing the rising curve of the Gaussian function, 
+ * Fractional increments scaled up by 2^16 (65536) for high-speed integer interpolation.
+ * index[0] = 0 to simplify interpolation. Will scan table from 1 to 32 using
+ *    an additional binary factor to interpolate between [i-1] to [i]
+ * The 32 bit FTW (Frequency Tuning Word) of the AD9851 DDS is used to generate the
+ *    gaussian transition steps. This provides 0.0419Hz frequency steps that can be
+ *    calculated and switched up to 8 times/ms with the Arduino Nano CPU.
+ * Used for FT4/FT8 FTW transition calculations.
+ */
+ //This table contains fractions from near zero to 1 multiplied by 2^16 so can
+ //   be used to derive a fraction (multiply) of the freq transition step and be 
+ //   correctly scaled using a simple right shift 16.
+const uint16_t Gaussian_G_Scaled[33] PROGMEM = {
+    0, 518, 705, 948, 1264, 1667, 2177, 2815, 3602, 
+    4565, 5726, 7110, 8741, 10638, 12817, 15288, 18052, 
+    21102, 24421, 27978, 31732, 35630, 39604, 43582, 47477, 
+    51203, 54668, 57782, 60461, 62631, 64228, 65206, 65535 
+};
 
 
 // *******************************************************************************************
@@ -198,18 +221,20 @@ void DigitalTXmsg()
     return;
   }
   
-  long i, n = 0;
-  long tStart = millis();
+  unsigned int i, n = 0;          //i is  next tone index into tx_buffer, n is number of tones sent
+  uint32_t tStart = millis();
 
-  FTxTxLastDF = FTxTxDF;
+  FTxTxLastDF = FTxTxDF;        // WSJTX delta (TX) freq Hz
   FTxTxMsgChanged = false;      //its a new message
 
-  long f0offset = 0;
-  if (TxMode == MODE_FT8) { f0offset = tone_spacing / 2; }         //FT8 zero symbol tone offset
+  uint32_t f0offsetHz_x100 = 0;
+  if (TxMode == MODE_FT8) { f0offsetHz_x100 = tone_spacingHz_x100 / 2; }         //FT8 zero symbol tone offset
 
-  long lastToneFreqHz_x10 = 0;
-  long nextToneFreqHz_x10 = 0;
-  
+  //setup variables that track the gaussian transitions
+  uint32_t baseFTW = 0;
+  uint32_t lastFTW = dds.frequencyFTW(CurFreq * 10UL);      //was set to curfreq before call here
+  uint32_t nextFTW = 0;
+  #define ROUNDING_OFFSET  32768UL       // 2^(16-1) for rounding during division by 2^16
 
   // MAIN LOOP to TX each FT4/FT4 tone required from symbol list
   // Note AdjustStart calculates the best starting point in symbol list
@@ -217,34 +242,81 @@ void DigitalTXmsg()
   for(i = AdjustStart(); i < symbol_count; i++)
   {    
     //next tone calc from symbols array. NOTE:: need "long" ints here to get enough digit resolution for freq.
-    long nextToneFreqHz_x10 = (CurFreq + FTxTxDF) * 10UL + (((long) (tx_buffer[i] * tone_spacing) + f0offset) + 5) / 10;  //tone calcs to 2 dec places rounded to 0.1Hz
+     baseFTW = dds.frequencyFTW((CurFreq + FTxTxDF) * 10UL);     //uses freqHz_x10 as input, this is tone zero freq
+     uint32_t FTWincr = (((uint32_t) tx_buffer[i] * tone_spacing_FTWincr_x100) + 50) / 100;     //rounded FTW incr to next tone[i]
+     nextFTW = baseFTW + FTWincr;
+      //sp(CurFreq); sp(baseFTW); sp(lastFTW); sp(nextFTW); sp("\r\n");
+
     if (i == 0)
     {
       // set first output freq required
-      dds.setFrequencyHz_x10(nextToneFreqHz_x10, PowerUp);  //first tone output       
+      dds.setFTW(nextFTW, PowerUp);       //first tone output
     }
     else
     {
       //gaussian transition to next tone
-      long gStart = micros();
-      double gTranChangeHz_x10 = nextToneFreqHz_x10 - lastToneFreqHz_x10;
-            
-      for (long g = 0; g <= gTranSteps; g++)
-      {
-         //careful use of double as it is only 6 digit resolution on Arduino Nano
-         double gX = dbl_gXstart + (double) g * (-dbl_gXincr);
-         double gY = exp(-pow(gX,2));
-         // set next output freq required
-         dds.setFrequencyHz_x10(lastToneFreqHz_x10 + (long) (gY * gTranChangeHz_x10 + 5) , PowerUp);
+      uint32_t next_gStep_time = micros();
+      // Gaussian LookUpTable version
+      // LUT contains UINT16_t gaussian fractions values scaled up by x2^16
+      // There are 32 increments in table (33 elements starting at 0, ending at 1 / 2^16 (-1))
+      // Remember that freq goes up and down so take care of signs
+      int32_t gTranChangeFTW = (int32_t) (nextFTW - lastFTW); //+/- Freq Transition expressed in AD9851 FTW units
+  
+      // top level loop scans Gaussian_G_Scaled[] LookupTable
+      for (int g = 1; g <= gTranSteps / gTranInterpFactor ; g++)      //LUT[0] = 0 plus 32 increments
+      {                                                               //for all steps in LUT
+        //sp(gTranChangeFTW);
 
+        //Prog mem for array to save on RAM
+        uint16_t G_scaled_current = pgm_read_word(&Gaussian_G_Scaled[g]);
+        uint16_t G_scaled_previous = pgm_read_word(&Gaussian_G_Scaled[g - 1]);
+
+        // 1. Find the gaussian step size for interpolation
+        uint16_t gLUTDelta = G_scaled_current - G_scaled_previous;
+
+        // Find the step size for the interpolation (this assumes gTranInterpFactor is power of 2)
+        uint16_t gLUTStepDeltaIncr = gLUTDelta / gTranInterpFactor;
+
+        //inner loop interpolates between LUT points.
+        //gTranInterpFactor is a binary number equal to the interpolation points required
+        for (int h = 1; h <= gTranInterpFactor; h++)
+        {                                                   //interpolate additional gTranInterpFactor steps
+          // calc interpolated gaussian fraction
+          uint16_t gLUTinterp = G_scaled_previous + gLUTStepDeltaIncr * h;
+
+          // calc FTW change for this step (using 64-bit multiply and 2^16 shift to re-scale LUT fractions
+          int64_t FTW_CHANGE_SCALED = (uint64_t) gLUTinterp * (int64_t) gTranChangeFTW;   //signed scaled change
+
+          // Apply rounding and divide by 2^16 to derive FTW change for this step
+          int32_t gTranFTW_delta = (int32_t)((FTW_CHANGE_SCALED + ROUNDING_OFFSET) >> 16);
+          
+          // new transition step frequency
+          uint32_t gTranFTW = lastFTW + gTranFTW_delta;
+          dds.setFTW(gTranFTW, PowerUp);   //set DDS output
+        
+        //calc end time for this step
+         next_gStep_time += gTranMicrosPerStep;
+/*
+        
+        Serial.print((micros()-next_gStep_time)/gTranMicrosPerStep); Serial.print(" ");
+        sp(g); sp(h); sp(G_scaled_previous); sp(G_scaled_current);
+        Serial.print(gLUTStepDeltaIncr); Serial.print(" ");
+        Serial.print(gLUTinterp); Serial.print(" ");
+        sp(gTranChangeFTW); sp((uint32_t)FTW_SCALED); sp(freeRam());
+        Serial.println(gTranFTW);
+*/
          //delay to next time increment
-         while (micros() - gStart - (g * 1000 / gTranIncr) < 1000 / gTranIncr) {}
+         while (micros() < next_gStep_time) {}
+        }
       }      
     }
-    lastToneFreqHz_x10 = nextToneFreqHz_x10;            //remember where we are for next gaussian transition 
+    //Serial.print(i); Serial.print(" "); Serial.print(lastFTW); Serial.print(" "); Serial.print(nextFTW); Serial.print(" "); Serial.println(freeRam());
+    
+    lastFTW = nextFTW;        //move on when gaussian transition complete and wait for end of tone for next change.
        
     //output tone duration and also check for {W0} abort command
-    long waitFor = tone_duration - gTranSteps / 2 / gTranIncr;               //allow for next gaussian transition time
+    // allow for half of transition time at end of tone period. Take care of Micros to Millis convertion of int32 gTranMicrosPerStep.
+    uint32_t waitFor = tone_duration - gTranSteps / (1000UL / gTranMicrosPerStep) / 2 ;     //allow for next gaussian transition time start
     if (i >= symbol_count - 1) { waitFor = tone_duration; }      //last tone so wait until its end
     while ((millis() - tStart - (n * tone_duration)) < waitFor  && FTxMillisToEnd > 0)   //avoid accumulating time errors
     {
@@ -274,6 +346,7 @@ void DigitalTXmsg()
   dds.setFrequencyHz_x10((CurFreq + FTxTxDF) * 10, PowerDown);
   DigiTxOn = false;      //key up
 }
+
 
 // The real time clock timing of the transmissions is critical to the success of FT4/FT8.
 // If a message transmission is started late then there is an optimum strategy to still ensure
@@ -377,32 +450,38 @@ void setDigDefaults()
   switch(TxMode)
   {
   case MODE_FT8:
-    symbol_count = FT8_SYMBOL_COUNT; // From the library defines
-    tone_spacing = FT8_TONE_SPACING;
-    tone_duration = FT8_tone_duration;
+    symbol_count = FT8_SYMBOL_COUNT;                              // From the library defines
+    tone_spacingHz_x100 = FT8_TONE_SPACING;                              //Hx * 100
+    tone_spacing_FTWincr_x100 = FT8_tone_spacing_FTWincr_x100;    //149.13
+    tone_duration = FT8_tone_duration;                            //160ms
     
     //gaussian freq transition params
-    dbl_gXstart = -2.2;
-    gTranSteps = 64;        //+/- 10% tone_duration, eack step 0.5ms
-    dbl_gTranSteps = gTranSteps;
-    dbl_gXincr = dbl_gXstart / (dbl_gTranSteps - 1);      //incr for gaussian formulae
+    gTranSteps = 256;                         //MUST BE 32*n where n is gTranInterpFactor.
+                                              // Applied around (+/-) each tone transition point
+    gTranMicrosPerStep = 64;                  //micros per gaussian transition step min ~60
+                                              // tran time ~16ms 10%
+    gTranInterpFactor = gTranSteps / 32;      //number of steps per increment in LookUpTable (LUT)
+                                              // ** MUST BE AN INTEGER **
     break;
   
   case MODE_FT4:
-    symbol_count = FT4_SYMBOL_COUNT; // From the library defines
-    tone_spacing = FT4_TONE_SPACING;
-    tone_duration = FT4_tone_duration;
+    symbol_count = FT4_SYMBOL_COUNT;                              // From the library defines
+    tone_spacingHz_x100 = FT4_TONE_SPACING;                              //Hx * 100
+    tone_spacing_FTWincr_x100 = FT4_tone_spacing_FTWincr_x100;    //497.10
+    tone_duration = FT4_tone_duration;                            //48ms
     
     //gaussian freq transition params
-    dbl_gXstart = -2.2;
-    gTranSteps = 32;        //+/- 20% tone_duration, eack step 0.5ms
-    dbl_gTranSteps = gTranSteps;
-    dbl_gXincr = dbl_gXstart / (dbl_gTranSteps - 1);      //incr for gaussian formulae
+    gTranSteps = 128;                         //MUST BE 32*n where n is gTranInterpFactor.
+                                              // Applied around (+/-) each tone transition point
+    gTranMicrosPerStep = 64;                  //micros per gaussian transition step min ~60
+                                              //tran time ~8ms 16%
+    gTranInterpFactor = gTranSteps / 32;      //number of steps per increment in LookUpTable (LUT)
+                                              // ** MUST BE AN INTEGER **
     break;
   
   case MODE_RTTY:
-  symbol_count = -1;
-  break;
+    symbol_count = -1;
+    break;
   }
 }
 
@@ -425,7 +504,7 @@ void setup() {
    delay(500);                        //needed for proper start at zero - don't know why!
    analogWrite(FanPin,FanPWMCur);
 
-  CalcFreqCorrection(20);       //set calibration at nominal 20deg
+  //CalcFreqCorrection(20);       //set calibration at nominal 20deg
   
   analogWrite(TXlevelPin,  255);    //0 = max out, 255 =min
   
@@ -444,7 +523,7 @@ void loop() {
     if (!KeyDownActive)              // need to go through TXon process?
     {
       dds.setFrequencyHz(CurFreq, PowerUp);      //turn DDS on
-      //Serial_print("{f" + String(CurFreq) + "}");                 //msg for ATU etc to make sure correct freq selected
+      Serial_print("{f" + String(CurFreq) + "}");                 //msg for ATU etc to make sure correct freq selected
       formatForSerial("{f", CurFreq, 0, "}" , outputBuffer, OUTPUT_BUFFER_SIZE);
       Serial_println(outputBuffer);
 
@@ -622,7 +701,7 @@ void SendSWR()
     //msg = "{T" + String(TempAvgRaw) + "}";
     formatForSerial("{T", TempAvgRaw, 2, "}" , outputBuffer, OUTPUT_BUFFER_SIZE);
     Serial_println(outputBuffer);
-    if (!DigiTxOn) { CalcFreqCorrection(TempAvgRaw); }
+    //if (!DigiTxOn) { CalcFreqCorrection(TempAvgRaw); }
     CheckFanState(avgFWD, SWR);
 
   StartNewAverage();
@@ -944,14 +1023,14 @@ double calcNTC(double AI) {
   return T - 273;   //return degC
 }
 
-
+/*
 void CalcFreqCorrection(double temp)
 {
 
   return;
   
   double DDSfirstTemp = _DDSfirstTemp;                //array index 0
-  double DDSoffsetHz[] = _DDSoffsetHz;
+  double DDSoffsetHz[] = {0} ;     //_DDSoffsetHz;
   int DDSarrSize = sizeof(DDSoffsetHz) / sizeof(DDSoffsetHz[0]);
   
   
@@ -975,6 +1054,7 @@ void CalcFreqCorrection(double temp)
   //Serial_println(DDSoffsetHz[i]);
   //Serial_println(newCorrection);
 }
+*/
 
 void SendTunekHz(bool bSendAlways)
 {
@@ -1001,10 +1081,24 @@ void Serial_print(T msg)
 }
 
 template <typename T>
+void sp(T msg)
+{
+    Serial.print(msg); Serial.print(" ");
+}
+
+template <typename T>
 void Serial_println(T msg)
 {
   if (TXPowerOn || TXlevel != 0)
   {
     Serial.println(msg);
   }
+}
+
+
+extern unsigned int __heap_start; 
+extern void *__brkval;
+int freeRam() {
+  char top; // Local variable on the stack
+  return (int)&top - (__brkval == 0 ? (int)&__heap_start : (int)__brkval);
 }

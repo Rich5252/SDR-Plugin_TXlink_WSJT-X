@@ -72,7 +72,7 @@ public:
   uint32_t frequencyFTW(uint32_t freq_x10) const
   {
     // 32-bit path: (freq_x10 * (reciprocal / 10) + rounding_term) >> shift
-    return ((uint64_t)freq_x10 * (reciprocal / 10) + (reciprocal/16/10)) >> shift;
+    return (uint32_t) (((uint64_t)freq_x10 * (reciprocal / 10) + (reciprocal/16/10)) >> shift);
   }
 
   void setFrequencyHz(uint32_t freq, bool PowerUp) 
