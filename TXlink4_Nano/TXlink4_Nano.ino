@@ -184,7 +184,7 @@ int gTranInterpFactor = gTranSteps / 32;    //number of steps per increment in L
  *    an additional binary factor to interpolate between [i-1] to [i]
  * The 32 bit FTW (Frequency Tuning Word) of the AD9851 DDS is used to generate the
  *    gaussian transition steps. This provides 0.0419Hz frequency steps that can be
- *    calculated and switched up to 8 times/ms with the Arduino Nano CPU.
+ *    calculated and switched up to every 60 microsec with the Arduino Nano CPU.
  * Used for FT4/FT8 FTW transition calculations.
  */
  //This table contains fractions from near zero to 1 multiplied by 2^16 so can
@@ -224,7 +224,7 @@ void DigitalTXmsg()
   unsigned int i, n = 0;          //i is  next tone index into tx_buffer, n is number of tones sent
   uint32_t tStart = millis();
 
-  FTxTxLastDF = FTxTxDF;        // WSJTX delta (TX) freq Hz
+  FTxTxLastDF = FTxTxDF;        // WSJTX delta (TX) base freq Hz
   FTxTxMsgChanged = false;      //its a new message
 
   uint32_t f0offsetHz_x100 = 0;
@@ -232,7 +232,7 @@ void DigitalTXmsg()
 
   //setup variables that track the gaussian transitions
   uint32_t baseFTW = 0;
-  uint32_t lastFTW = dds.frequencyFTW(CurFreq * 10UL);      //was set to curfreq before call here
+  uint32_t lastFTW = dds.frequencyFTW((CurFreq + FTxTxDF) * 10UL);      //was set to curfreq+FTxTxDF before call here
   uint32_t nextFTW = 0;
   #define ROUNDING_OFFSET  32768UL       // 2^(16-1) for rounding during division by 2^16
 
@@ -243,7 +243,8 @@ void DigitalTXmsg()
   {    
     //next tone calc from symbols array. NOTE:: need "long" ints here to get enough digit resolution for freq.
      baseFTW = dds.frequencyFTW((CurFreq + FTxTxDF) * 10UL);     //uses freqHz_x10 as input, this is tone zero freq
-     uint32_t FTWincr = (((uint32_t) tx_buffer[i] * tone_spacing_FTWincr_x100) + 50) / 100;     //rounded FTW incr to next tone[i]
+                                                                 //needed here in case FTxTxDF changed during tx output period
+     uint32_t FTWincr = (((uint32_t) tx_buffer[i] * tone_spacing_FTWincr_x100) + 50) / 100;     //rounded FTW from base to next tone[i]
      nextFTW = baseFTW + FTWincr;
       //sp(CurFreq); sp(baseFTW); sp(lastFTW); sp(nextFTW); sp("\r\n");
 
@@ -258,8 +259,10 @@ void DigitalTXmsg()
       uint32_t next_gStep_time = micros();
       // Gaussian LookUpTable version
       // LUT contains UINT16_t gaussian fractions values scaled up by x2^16
-      // There are 32 increments in table (33 elements starting at 0, ending at 1 / 2^16 (-1))
+      // There are 32 increments in table (33 elements starting at 0, ending at 1 * 2^16 (-1))
       // Remember that freq goes up and down so take care of signs
+      // For speed we are using the Freq Tuning Word on AD9851 DDS directly
+      // lastFTW & nextFTW are the adjacent tone freqs (FTW units)
       int32_t gTranChangeFTW = (int32_t) (nextFTW - lastFTW); //+/- Freq Transition expressed in AD9851 FTW units
   
       // top level loop scans Gaussian_G_Scaled[] LookupTable
@@ -274,17 +277,17 @@ void DigitalTXmsg()
         // 1. Find the gaussian step size for interpolation
         uint16_t gLUTDelta = G_scaled_current - G_scaled_previous;
 
-        // Find the step size for the interpolation (this assumes gTranInterpFactor is power of 2)
+        // Find the step size for the interpolation. gTranInterpFactor needs to be an integer value
         uint16_t gLUTStepDeltaIncr = gLUTDelta / gTranInterpFactor;
 
         //inner loop interpolates between LUT points.
-        //gTranInterpFactor is a binary number equal to the interpolation points required
+        //gTranInterpFactor is the interpolation points required
         for (int h = 1; h <= gTranInterpFactor; h++)
         {                                                   //interpolate additional gTranInterpFactor steps
           // calc interpolated gaussian fraction
           uint16_t gLUTinterp = G_scaled_previous + gLUTStepDeltaIncr * h;
 
-          // calc FTW change for this step (using 64-bit multiply and 2^16 shift to re-scale LUT fractions
+          // calc FTW change for this step that can be +/-
           int64_t FTW_CHANGE_SCALED = (uint64_t) gLUTinterp * (int64_t) gTranChangeFTW;   //signed scaled change
 
           // Apply rounding and divide by 2^16 to derive FTW change for this step
@@ -294,33 +297,34 @@ void DigitalTXmsg()
           uint32_t gTranFTW = lastFTW + gTranFTW_delta;
           dds.setFTW(gTranFTW, PowerUp);   //set DDS output
         
-        //calc end time for this step
-         next_gStep_time += gTranMicrosPerStep;
-/*
-        
-        Serial.print((micros()-next_gStep_time)/gTranMicrosPerStep); Serial.print(" ");
-        sp(g); sp(h); sp(G_scaled_previous); sp(G_scaled_current);
-        Serial.print(gLUTStepDeltaIncr); Serial.print(" ");
-        Serial.print(gLUTinterp); Serial.print(" ");
-        sp(gTranChangeFTW); sp((uint32_t)FTW_SCALED); sp(freeRam());
-        Serial.println(gTranFTW);
-*/
-         //delay to next time increment
-         while (micros() < next_gStep_time) {}
-        }
-      }      
-    }
+          //calc end time for this step
+          next_gStep_time += gTranMicrosPerStep;
+  /*
+          //These are VERY SLOW
+          Serial.print((micros()-next_gStep_time)/gTranMicrosPerStep); Serial.print(" ");
+          sp(g); sp(h); sp(G_scaled_previous); sp(G_scaled_current);
+          Serial.print(gLUTStepDeltaIncr); Serial.print(" ");
+          Serial.print(gLUTinterp); Serial.print(" ");
+          sp(gTranChangeFTW); sp((uint32_t)FTW_SCALED); sp(freeRam());
+          Serial.println(gTranFTW);
+  */
+          //delay to end of this time increment
+          while (micros() < next_gStep_time) {}
+        } //End of gaussian inner interpolation loop
+      } //End of outer loop that scans LUT
+    } //End of gaussian transition to new tone
+
     //Serial.print(i); Serial.print(" "); Serial.print(lastFTW); Serial.print(" "); Serial.print(nextFTW); Serial.print(" "); Serial.println(freeRam());
     
     lastFTW = nextFTW;        //move on when gaussian transition complete and wait for end of tone for next change.
        
-    //output tone duration and also check for {W0} abort command
+    //check output tone duration and also for {W0} abort command
     // allow for half of transition time at end of tone period. Take care of Micros to Millis convertion of int32 gTranMicrosPerStep.
     uint32_t waitFor = tone_duration - gTranSteps / (1000UL / gTranMicrosPerStep) / 2 ;     //allow for next gaussian transition time start
     if (i >= symbol_count - 1) { waitFor = tone_duration; }      //last tone so wait until its end
     while ((millis() - tStart - (n * tone_duration)) < waitFor  && FTxMillisToEnd > 0)   //avoid accumulating time errors
     {
-      // do background stuff while waiting (take care this doesnt take too long!)
+      // do background stuff while waiting (take care this doesnt take too long!) About 40ms available in FT4
       SWRmeasure();
       ProcessSerialIn();
 
@@ -333,19 +337,19 @@ void DigitalTXmsg()
         tStart = millis();
         n = -1;
         break;      //jump out to restart new message sequence
-      }
-    }
+      } //End background processing while waiting
+    }     
     n++; //count tones sent since tx tStart
     if (TuneChk == 0) {i = 1;}        //continue until waitfor time if Tune mode
     
     //exit when tx off message received and we reach end of period ("W0" used to force a HaltTx here)
     if (!DigiTxOn  && ((millis() - tStart) > FTxMillisToEnd) ) { break; }
-  }
+  } //End of this tone (symbol)
 
   // Reset freq, remove RF. TX is turned off properly in the main loop
   dds.setFrequencyHz_x10((CurFreq + FTxTxDF) * 10, PowerDown);
   DigiTxOn = false;      //key up
-}
+} //End of this message symbol list
 
 
 // The real time clock timing of the transmissions is critical to the success of FT4/FT8.
@@ -383,7 +387,7 @@ int AdjustStart()
     iRet = symbol_count;
   }
   //there is enough time to try so what can be sent?
-  //wsjyx truncates start so decode sync is in a reasonable time frame within period
+  //wsjtx truncates start so decode sync is in a reasonable time frame within period
   else if (TimeLeft <= TruncTime)
   {
     //not enough time for whole msg so truncate start (wsjtx does this on late msg starts)
@@ -471,10 +475,10 @@ void setDigDefaults()
     tone_duration = FT4_tone_duration;                            //48ms
     
     //gaussian freq transition params
-    gTranSteps = 128;                         //MUST BE 32*n where n is gTranInterpFactor.
+    gTranSteps = 96;                         //MUST BE 32*n where n is gTranInterpFactor.
                                               // Applied around (+/-) each tone transition point
     gTranMicrosPerStep = 64;                  //micros per gaussian transition step min ~60
-                                              //tran time ~8ms 16%
+                                              //tran time ~6ms 12%
     gTranInterpFactor = gTranSteps / 32;      //number of steps per increment in LookUpTable (LUT)
                                               // ** MUST BE AN INTEGER **
     break;
@@ -517,12 +521,14 @@ void setup() {
 // run loop (forever)
 void loop() {
   int fanPWM = FanPWMCur;
+  uint32_t StartFreq = CurFreq;
+  if (DigiTxOn) { StartFreq += FTxTxDF; }  
   if ((digitalRead(KeyIn) == LOW || DigiTxOn) && TXPowerOn)
   {
     // Transmiting or need to go to transmit
     if (!KeyDownActive)              // need to go through TXon process?
     {
-      dds.setFrequencyHz(CurFreq, PowerUp);      //turn DDS on
+      dds.setFrequencyHz_x10(StartFreq * 10, PowerUp);      //turn DDS on
       Serial_print("{f" + String(CurFreq) + "}");                 //msg for ATU etc to make sure correct freq selected
       formatForSerial("{f", CurFreq, 0, "}" , outputBuffer, OUTPUT_BUFFER_SIZE);
       Serial_println(outputBuffer);
@@ -578,7 +584,7 @@ void loop() {
         Serial_println("{N}");            //RX off Mute
         digitalWrite(ExtPAout, LOW);    //turn off external PA (may not of been on of course)
         digitalWrite(TXout, LOW);       //turn off RF
-        dds.setFrequencyHz(CurFreq, PowerDown);    //and dds off
+        dds.setFrequencyHz_x10(StartFreq * 10, PowerDown);    //and dds off
         LastKeyUpMillis = 0;
 
         FanHoldStartMillis = millis();  // hold fan on (if on) until fan hold time expires
@@ -1023,7 +1029,7 @@ double calcNTC(double AI) {
   return T - 273;   //return degC
 }
 
-/*
+/*    No longer needed with TCXO
 void CalcFreqCorrection(double temp)
 {
 
